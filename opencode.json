@@ -1,0 +1,11 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "ollama/qwen3.5:2b",
+  "providers": {
+    "ollama": {
+      "body": {
+        "reasoning_effort": "none"
+      }
+    }
+  }
+}
