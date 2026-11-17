@@ -18,12 +18,6 @@ a las 06:00 (hora local). Todavía no hay fuentes ni búsquedas web configuradas
 - Temporizador de usuario `raspberry-status.timer`, persistente y programado a las 06:00.
 - Estado de automatizaciones basado en los temporizadores systemd del usuario; actualmente incluye `sync-obsidian`.
 
-## Referencia técnica
-
-Consulta el [resumen del monitor de Telegram](docs/resumen-monitor-telegram.md)
-para conocer el flujo del informe, la configuración, las alertas y los comandos
-de operación.
-
 ## Uso
 
 ```bash
