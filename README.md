@@ -1,7 +1,8 @@
 # Herramientas del monitor local
 
 Base instalada en la Raspberry Pi. Envía un informe diario de salud a Telegram
-a las 06:00 (hora local). Todavía no hay fuentes ni búsquedas web configuradas.
+a las 06:00 (hora local). No integra rastreo web; Open-Meteo y Transitous se
+consultan mediante sus API públicas.
 
 ## Componentes
 
@@ -13,10 +14,17 @@ a las 06:00 (hora local). Todavía no hay fuentes ni búsquedas web configuradas
 - Informe diario en `daily_status.py`, enviado por el bot de Telegram local.
 - Informe presentado como panel con secciones, iconos y alertas destacadas.
 - Copilot CLI usa el modelo local `qwen2.5-coder:1.5b` para resumir el estado y el clima.
-- La ciudad del clima se configura en la variable global `WEATHER_CITY` de `/etc/environment`.
+- La ciudad y el país se configuran en `Monitor local - configuración.md` en el
+  vault y se sincronizan a `~/.config/local-monitor/monitor.env` después del pull
+  diario de las 03:00.
 - El clima actual se consulta en Open-Meteo y se añade al informe.
+- Transitous/MOTIS consulta una vez al día los servicios a la hora configurada.
+  Solo se muestran retrasos/cancelaciones marcados en tiempo real; los datos
+  ausentes no se interpretan como ausencia de incidencias. La consulta se omite
+  durante una ubicación temporal activa. Atribución: [Transitous](https://transitous.org/sources/).
 - Temporizador de usuario `raspberry-status.timer`, persistente y programado a las 06:00.
 - Estado de automatizaciones basado en los temporizadores systemd del usuario; actualmente incluye `sync-obsidian`.
+- `sync_monitor_config.py` valida el YAML del vault y conserva la última configuración local válida si la nota no está disponible o no valida.
 
 ## Uso
 
@@ -44,6 +52,14 @@ la última ejecución de los temporizadores personales. Copilot CLI usa Ollama e
 mantiene sin cambios debajo para proteger la exactitud. No tiene herramientas
 disponibles. El token y el `chat_id` se guardan en
 `~/.config/telegram-bot/` con permisos privados; no deben añadirse al repositorio.
+El informe lee primero la configuración local del monitor; si falta, mantiene
+compatibilidad con `WEATHER_CITY` en `/etc/environment`.
+
+Transitous es un servicio comunitario best-effort, sin clave API. El cliente usa
+un `User-Agent` identificable y limita las consultas a la planificación diaria y
+la geocodificación necesaria. El proyecto no debe usar este servicio con fines
+comerciales ni generar tráfico elevado; sus condiciones están en
+[transitous.org](https://transitous.org/).
 
 Para utilizar Chromium en los futuros scripts de Playwright:
 

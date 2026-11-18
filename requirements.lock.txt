@@ -25,6 +25,7 @@ proclimits==0.2.0
 propcache==0.5.4
 Protego==0.7.0
 psutil==7.2.2
+PyYAML==6.0.2
 pydantic==2.14.3
 pydantic-settings==2.16.3
 pydantic_core==2.50.4

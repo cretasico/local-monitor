@@ -12,12 +12,15 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from urllib.parse import urlencode
 
+from transitous import safe_transport_incidents
+
 
 CONFIG_DIR = Path.home() / ".config" / "telegram-bot"
+LOCAL_ENVIRONMENT = Path.home() / ".config" / "local-monitor" / "monitor.env"
 STATUS_TIMER = "raspberry-status.timer"
 COPILOT_CLI = Path.home() / ".local" / "bin" / "copilot"
 LOCAL_MODEL = "qwen2.5-coder:1.5b"
@@ -102,7 +105,60 @@ def temperature_celsius() -> float | None:
     return int(sensor.read_text().strip()) / 1000
 
 
-def weather_city() -> str:
+def read_environment_file(path: Path) -> dict[str, str]:
+    values = {}
+    if not path.is_file():
+        return values
+    for line in path.read_text().splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        name, separator, raw_value = line.partition("=")
+        if not separator or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name.strip()):
+            raise ValueError(f"Formato inválido en {path}")
+        parsed = shlex.split(raw_value, comments=False)
+        if len(parsed) > 1:
+            raise ValueError(f"Formato inválido en {path}")
+        values[name.strip()] = parsed[0] if parsed else ""
+    return values
+
+
+def configured_weather_location(
+    settings: dict[str, str],
+    fallback_city: str,
+    fallback_country_code: str,
+    today=None,
+) -> tuple[str, str]:
+    today = today or datetime.now().astimezone().date()
+    home_city = settings.get("WEATHER_HOME_CITY", "").strip()
+    home_country = settings.get("WEATHER_HOME_COUNTRY_CODE", "").strip()
+    if home_city and home_country:
+        temporary_city = settings.get("WEATHER_TEMP_CITY", "").strip()
+        temporary_country = settings.get("WEATHER_TEMP_COUNTRY_CODE", "").strip()
+        expires_on = settings.get("WEATHER_TEMP_EXPIRES_ON", "").strip()
+        if temporary_city and temporary_country and expires_on:
+            try:
+                expiry = date.fromisoformat(expires_on)
+            except ValueError as error:
+                raise ValueError("Fecha de vencimiento meteorológica inválida") from error
+            if today <= expiry:
+                return temporary_city, temporary_country
+        return home_city, home_country
+
+    city = settings.get("WEATHER_CITY", "").strip() or fallback_city.strip()
+    country = settings.get("WEATHER_COUNTRY_CODE", "").strip() or fallback_country_code.strip()
+    if not city:
+        raise RuntimeError("WEATHER_CITY no está configurada")
+    return city, country or "DE"
+
+
+def weather_location() -> tuple[str, str]:
+    try:
+        local_settings = read_environment_file(LOCAL_ENVIRONMENT)
+    except (OSError, ValueError) as error:
+        print(f"Configuración local del monitor no disponible: {error}", file=sys.stderr)
+        local_settings = {}
+
     city = os.environ.get("WEATHER_CITY", "").strip()
     if not city and GLOBAL_ENVIRONMENT.is_file():
         for line in GLOBAL_ENVIRONMENT.read_text().splitlines():
@@ -111,9 +167,12 @@ def weather_city() -> str:
                 parsed = shlex.split(value, comments=True)
                 city = parsed[0] if parsed else ""
                 break
-    if not city:
-        raise RuntimeError("WEATHER_CITY no está configurada en el entorno global")
-    return city
+    country = os.environ.get("WEATHER_COUNTRY_CODE", "DE").strip()
+    return configured_weather_location(local_settings, city, country)
+
+
+def weather_city() -> str:
+    return weather_location()[0]
 
 
 def fetch_json(url: str) -> dict:
@@ -122,9 +181,9 @@ def fetch_json(url: str) -> dict:
         return json.load(response)
 
 
-def current_weather(city: str) -> str:
+def current_weather(city: str, country_code: str = "DE") -> str:
     geocoding_url = "https://geocoding-api.open-meteo.com/v1/search?" + urlencode(
-        {"name": city, "count": 1, "language": "es", "format": "json", "countryCode": "DE"}
+        {"name": city, "count": 1, "language": "es", "format": "json", "countryCode": country_code}
     )
     locations = fetch_json(geocoding_url).get("results") or []
     if not locations:
@@ -221,10 +280,16 @@ def make_report() -> str:
     disk_percent = round((disk.total - disk.free) * 100 / disk.total)
     temperature = temperature_celsius()
     try:
-        weather_line = current_weather(weather_city())
+        weather_line = current_weather(*weather_location())
     except (OSError, RuntimeError, ValueError, KeyError, TypeError) as error:
         print(f"Clima no disponible: {error}", file=sys.stderr)
         weather_line = "Clima actual: no disponible"
+    try:
+        local_settings = read_environment_file(LOCAL_ENVIRONMENT)
+    except (OSError, ValueError):
+        print("Transporte no disponible: configuración local inválida", file=sys.stderr)
+        local_settings = {}
+    transit_incidents = safe_transport_incidents(local_settings)
     ollama_state = run_command("is-active", "ollama").stdout.strip() or "desconocido"
     automation_lines, alerts = user_automations()
 
@@ -263,6 +328,15 @@ def make_report() -> str:
         lines.extend(f"• {alert}" for alert in alerts)
     else:
         lines.extend(["", "✅ Sin alertas detectadas"])
+    if transit_incidents:
+        lines.extend(
+            [
+                "",
+                "🚆 TRANSPORTE · Transitous",
+                *transit_incidents,
+                "Fuente: https://transitous.org/sources/",
+            ]
+        )
     return "\n".join(lines)
 
 
